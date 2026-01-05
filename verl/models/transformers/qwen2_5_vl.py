@@ -58,7 +58,26 @@ def forward_base_model(
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
     if inputs_embeds is None:
-        inputs_embeds = self.model.embed_tokens(input_ids)
+        # Transformers versions differ: prefer the stable HF API
+        embed_layer = None
+        try:
+            embed_layer = self.get_input_embeddings()
+        except Exception:
+            embed_layer = None
+
+        if embed_layer is None:
+            embed_layer = getattr(self.model, "embed_tokens", None)
+
+        if embed_layer is None and hasattr(self.model, "get_input_embeddings"):
+            embed_layer = self.model.get_input_embeddings()
+
+        if embed_layer is None:
+            raise AttributeError(
+                f"Cannot find token embedding layer. "
+                f"type(self)={type(self)}, type(self.model)={type(self.model)}"
+            )
+
+        inputs_embeds = embed_layer(input_ids)
         if pixel_values is not None:
             pixel_values = pixel_values.type(self.visual.dtype)
             image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
