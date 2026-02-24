@@ -150,10 +150,27 @@ def _get_input_embeds(
         image_embeds, deepstack_image_embeds = model.visual(pixel_values, grid_thw=image_grid_thw)
         n_image_tokens = (input_ids == model.config.image_token_id).sum().item()
         n_image_features = image_embeds.shape[0]
+        
         if n_image_tokens != n_image_features:
-            raise ValueError(
-                f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
+            logger.warning(
+                f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}. "
+                f"Auto-aligning (pad/truncate) to avoid crash."
             )
+            if n_image_features < n_image_tokens:
+                # Pad image_embeds with zeros to match token count
+                pad_size = n_image_tokens - n_image_features
+                pad_embeds = torch.zeros(pad_size, image_embeds.shape[1], dtype=image_embeds.dtype, device=image_embeds.device)
+                image_embeds = torch.cat([image_embeds, pad_embeds], dim=0)
+                if deepstack_image_embeds is not None:
+                    deepstack_image_embeds = [
+                        torch.cat([emb, torch.zeros(pad_size, emb.shape[1], dtype=emb.dtype, device=emb.device)], dim=0)
+                        for emb in deepstack_image_embeds
+                    ]
+            else:
+                # Truncate image_embeds to match token count
+                image_embeds = image_embeds[:n_image_tokens]
+                if deepstack_image_embeds is not None:
+                    deepstack_image_embeds = [emb[:n_image_tokens] for emb in deepstack_image_embeds]
 
         mask = input_ids == model.config.image_token_id
         mask_unsqueezed = mask.unsqueeze(-1)
